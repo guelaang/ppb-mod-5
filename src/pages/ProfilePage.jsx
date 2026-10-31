@@ -283,11 +283,11 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
             <ul className="contact-list">
               <li>📍 123 Range Road, Jakarta Selatan</li>
               <li>🕐 Selasa – Sabtu, 10:00 – 18:00</li>
-              <li>📞 (555) 010-0100</li>
+              <li>📞 0895-0601-6984</li>
               <li>📧 hello@boreandbarrel.id</li>
             </ul>
             <a
-              href="https://wa.me/6285156789012?text=Hi%20Bore%20%26%20Barrel%2C%20saya%20mau%20tanya..."
+              href="https://wa.me/6289506016984?text=Hi%20Bore%20%26%20Barrel%2C%20saya%20mau%20tanya..."
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn--wa"

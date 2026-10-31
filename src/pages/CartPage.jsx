@@ -3,8 +3,8 @@ import { ShoppingCart, Trash2, Plus, Minus, MessageCircle, PackageOpen } from 'l
 import { useCart } from '../hooks/useCart'
 import { formatPrice } from '../utils/helpers'
 
-// WA number owner — ganti dengan nomor asli
-const WA_NUMBER = '6285156789012'
+// WA number owner — 089506016984
+const WA_NUMBER = '6289506016984'
 
 /**
  * CartPage — Keranjang belanja dengan checkout ke WhatsApp.
