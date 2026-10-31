@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen, CheckCircle } from 'lucide-react'
 import { useGuns } from '../hooks/useGuns'
 import GUNS_LOCAL from '../data/guns'
 import GunCard from '../components/gun/GunCard'
@@ -7,6 +7,7 @@ import GunDetail from '../components/gun/GunDetail'
 import AdvancedFilter from '../components/common/AdvancedFilter'
 import ConfirmModal from '../components/modals/ConfirmModal'
 import gunService from '../services/gunService'
+import archiveService from '../services/archiveService'
 import {
   matchesSearch,
   matchesCategory,
@@ -21,21 +22,38 @@ import {
  *   1. Live API via useGuns()
  *   2. Local static array (GUNS_LOCAL) when the API is unreachable
  *
- * Features: search, category filter, sort, CRUD actions, detail modal.
+ * Features: search, category filter, sort, CRUD actions, soft delete/arsip, detail view.
  */
 export default function Catalog({ onNavigate }) {
   // ---- API data ----
   const { guns: apiGuns, loading, error, refetch } = useGuns({ limit: 50 })
   const [useLocal, setUseLocal] = useState(false)
+  const [archiveTrigger, setArchiveTrigger] = useState(0)
 
-  // Decide data source
+  // Sync when items are archived, restored, or permanently deleted
+  useEffect(() => {
+    const onArchiveUpdate = () => setArchiveTrigger((t) => t + 1)
+    window.addEventListener('archive-updated', onArchiveUpdate)
+    return () => window.removeEventListener('archive-updated', onArchiveUpdate)
+  }, [])
+
+  // Decide data source & filter out archived or deleted items
   const rawGuns = useMemo(() => {
+    let list = []
     if (useLocal || (error && apiGuns.length === 0)) {
-      // Enrich local data with synthetic ids so FavoriteButton and detail work
-      return GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
+      list = GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
+    } else {
+      list = apiGuns
     }
-    return apiGuns
-  }, [apiGuns, error, useLocal])
+
+    const archivedIds = archiveService.getArchivedIds()
+    const deletedIds = archiveService.getDeletedIds()
+
+    return list.filter((g) => {
+      const gid = g.id || g.name
+      return !archivedIds.includes(gid) && !deletedIds.includes(gid)
+    })
+  }, [apiGuns, error, useLocal, archiveTrigger])
 
   // ---- filters / sort ----
   const [search, setSearch] = useState('')
@@ -55,21 +73,35 @@ export default function Catalog({ onNavigate }) {
   // ---- detail view ----
   const [selectedGun, setSelectedGun] = useState(null)
 
-  // ---- delete ----
+  // ---- delete / archive modal state ----
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [successNotice, setSuccessNotice] = useState('')
 
-  const handleDelete = async () => {
+  const handleArchiveConfirm = () => {
+    if (!deleteTarget) return
+    archiveService.archiveGun(deleteTarget)
+    setSuccessNotice(`"${deleteTarget.name}" berhasil dipindahkan ke Arsip (Soft Delete).`)
+    setDeleteTarget(null)
+    setTimeout(() => setSuccessNotice(''), 4000)
+  }
+
+  const handlePermanentDeleteConfirm = async () => {
     if (!deleteTarget) return
     try {
       setDeleting(true)
-      setDeleteError('')
-      await gunService.deleteGun(deleteTarget.id)
+      const targetId = deleteTarget.id || deleteTarget.name
+      archiveService.permanentlyDeleteGun(targetId)
+      // Best effort delete on backend server
+      if (deleteTarget.id) {
+        gunService.deleteGun(deleteTarget.id).catch(() => {})
+      }
+      setSuccessNotice(`"${deleteTarget.name}" berhasil dihapus permanen.`)
       setDeleteTarget(null)
-      refetch()
+      setTimeout(() => setSuccessNotice(''), 4000)
     } catch (err) {
-      setDeleteError(err.message || 'Failed to delete.')
+      setDeleteError(err.message || 'Gagal menghapus produk.')
     } finally {
       setDeleting(false)
     }
@@ -83,6 +115,12 @@ export default function Catalog({ onNavigate }) {
         onBack={() => setSelectedGun(null)}
         onEdit={(g) => onNavigate && onNavigate('Edit', g)}
         onDelete={(g) => { setSelectedGun(null); setDeleteTarget(g) }}
+        onArchive={(g) => {
+          archiveService.archiveGun(g)
+          setSelectedGun(null)
+          setSuccessNotice(`"${g.name}" berhasil dipindahkan ke Arsip.`)
+          setTimeout(() => setSuccessNotice(''), 4000)
+        }}
       />
     )
   }
@@ -98,6 +136,13 @@ export default function Catalog({ onNavigate }) {
         </p>
       </section>
 
+      {/* Notifications */}
+      {successNotice && (
+        <div className="toast toast--success">
+          <CheckCircle size={18} /> {successNotice}
+        </div>
+      )}
+
       <section>
         <div className="list-head">
           <h2>Current stock</h2>
@@ -111,61 +156,77 @@ export default function Catalog({ onNavigate }) {
                 className="btn btn--primary btn--sm"
                 onClick={() => onNavigate('Create')}
               >
-                <Plus size={16} /> Add
+                <Plus size={15} /> Add Hardware
               </button>
             )}
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => { setUseLocal(false); refetch() }}
+              title="Refresh catalog"
+              aria-label="Refresh catalog"
+            >
+              <RefreshCw size={15} />
+            </button>
           </div>
         </div>
 
-        {/* Filters */}
+        {/* Filter bar */}
         <AdvancedFilter
           search={search}
-          onSearch={setSearch}
+          onSearchChange={setSearch}
           categories={categories}
           activeCategory={activeCategory}
-          onCategory={setActiveCategory}
+          onCategoryChange={setActiveCategory}
           sortKey={sortKey}
+          onSortKeyChange={setSortKey}
           sortOrder={sortOrder}
-          onSort={({ key, order }) => { setSortKey(key); setSortOrder(order) }}
+          onSortOrderChange={setSortOrder}
         />
 
-        {/* States */}
-        {loading && (
-          <div className="state-box">
-            <Loader size={28} className="spin" />
-            <p>Loading products…</p>
+        {/* Error banner with fallback toggle */}
+        {error && !useLocal && (
+          <div className="error-banner">
+            <AlertCircle size={18} />
+            <span>{error}</span>
+            <button
+              type="button"
+              className="btn btn--outline btn--sm"
+              onClick={() => setUseLocal(true)}
+            >
+              View local catalog
+            </button>
           </div>
         )}
 
-        {!loading && error && !useLocal && (
-          <div className="state-box state-box--error">
-            <AlertCircle size={28} />
-            <p>{error}</p>
-            <div className="state-box__actions">
-              <button type="button" className="btn btn--outline" onClick={refetch}>
-                <RefreshCw size={16} /> Retry
-              </button>
+        {/* Loading state */}
+        {loading && (
+          <div className="loading-state">
+            <Loader className="spin" size={28} />
+            <p>Loading armory inventory…</p>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!loading && filteredGuns.length === 0 && (
+          <div className="empty-state">
+            <PackageOpen size={36} stroke="var(--steel)" />
+            <p>No matching hardware found.</p>
+            {(search || activeCategory !== 'All') && (
               <button
                 type="button"
-                className="btn btn--outline"
-                onClick={() => setUseLocal(true)}
+                className="btn btn--outline btn--sm"
+                onClick={() => { setSearch(''); setActiveCategory('All') }}
               >
-                View Local Catalog
+                Clear filters
               </button>
-            </div>
+            )}
           </div>
         )}
 
-        {!loading && filteredGuns.length === 0 && !error && (
-          <div className="state-box">
-            <PackageOpen size={28} />
-            <p>No products match your search.</p>
-          </div>
-        )}
-
-        {/* Product grid */}
-        {filteredGuns.length > 0 && (
-          <ul className="stock">
+        {/* Catalog grid */}
+        {!loading && filteredGuns.length > 0 && (
+          <ul className="gun-grid">
             {filteredGuns.map((gun) => (
               <GunCard
                 key={gun.id || gun.name}
@@ -192,15 +253,17 @@ export default function Catalog({ onNavigate }) {
         )}
       </section>
 
-      {/* Delete confirmation */}
+      {/* Delete / Archive confirmation modal */}
       <ConfirmModal
-        open={!!deleteTarget}
-        title="Delete Product"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        danger
+        open={Boolean(deleteTarget)}
+        title="Hapus atau Arsipkan Produk"
+        message={`Pilih tindakan untuk "${deleteTarget?.name}": pindahkan ke Arsip (soft delete, dapat dipulihkan sewaktu-waktu dari profil) atau hapus permanen.`}
+        confirmLabel="Pindahkan ke Arsip (Soft Delete)"
+        secondaryLabel="Hapus Permanen"
+        cancelLabel="Batal"
         loading={deleting}
-        onConfirm={handleDelete}
+        onConfirm={handleArchiveConfirm}
+        onSecondary={handlePermanentDeleteConfirm}
         onCancel={() => { setDeleteTarget(null); setDeleteError('') }}
       />
       {deleteError && (

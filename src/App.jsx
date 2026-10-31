@@ -35,12 +35,14 @@ function App() {
   const [editingGun, setEditingGun]     = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting]         = useState(false)
+  const [createDraftId, setCreateDraftId] = useState(null)
 
   const { items: cartItems } = useCart()
 
   // Unified navigation handler
   const handleNavigate = (target, payload) => {
     if (target === 'Create') {
+      setCreateDraftId(payload?.draftId || null)
       setMode('create')
     } else if (target === 'Edit') {
       setEditingGun(payload)
@@ -57,6 +59,7 @@ function App() {
       setMode('list')
       setSelectedGun(null)
       setEditingGun(null)
+      setCreateDraftId(null)
     }
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -65,6 +68,7 @@ function App() {
     setMode('list')
     setSelectedGun(null)
     setEditingGun(null)
+    setCreateDraftId(null)
   }
 
   const handleArchive = (gun) => {
@@ -92,6 +96,7 @@ function App() {
           {/* Sub-page views */}
           {mode === 'create' && (
             <CreateGunPage
+              initialDraftId={createDraftId}
               onBack={handleBackToList}
               onSuccess={() => { handleBackToList(); setTab('Catalog') }}
             />
@@ -154,24 +159,34 @@ function App() {
         </Suspense>
       </main>
 
-      {/* Global Delete Confirmation */}
+      {/* Global Delete / Archive Confirmation */}
       <ConfirmModal
         open={Boolean(deleteTarget)}
-        title="Delete Hardware Record"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        danger
+        title="Hapus atau Arsipkan Produk"
+        message={`Pilih tindakan untuk "${deleteTarget?.name}": pindahkan ke Arsip (soft delete, dapat dipulihkan dari profil) atau hapus permanen.`}
+        confirmLabel="Pindahkan ke Arsip (Soft Delete)"
+        secondaryLabel="Hapus Permanen"
+        cancelLabel="Batal"
         loading={deleting}
-        onConfirm={async () => {
+        onConfirm={() => {
+          if (!deleteTarget) return
+          archiveService.archiveGun(deleteTarget)
+          setDeleteTarget(null)
+          handleBackToList()
+          setTab('Catalog')
+        }}
+        onSecondary={async () => {
           if (!deleteTarget) return
           try {
             setDeleting(true)
-            await gunService.deleteGun(deleteTarget.id)
+            const targetId = deleteTarget.id || deleteTarget.name
+            archiveService.permanentlyDeleteGun(targetId)
+            if (deleteTarget.id) {
+              gunService.deleteGun(deleteTarget.id).catch(() => {})
+            }
             setDeleteTarget(null)
             handleBackToList()
             setTab('Catalog')
-          } catch (err) {
-            alert(err.message || 'Failed to delete record.')
           } finally {
             setDeleting(false)
           }

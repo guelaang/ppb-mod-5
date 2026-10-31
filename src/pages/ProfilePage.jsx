@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Shield,
   Copy,
@@ -17,34 +17,8 @@ import {
 import userService from '../services/userService'
 import { useFavorites } from '../hooks/useFavorites'
 import archiveService from '../services/archiveService'
+import draftStorage, { formatDraftTime } from '../utils/draftStorage'
 import { formatPrice } from '../utils/helpers'
-
-/**
- * Get all drafts from localStorage
- */
-const getDrafts = () => {
-  try {
-    const drafts = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && (key.startsWith('bore_barrel_draft_') || key.startsWith('recipe_draft_'))) {
-        try {
-          const data = JSON.parse(localStorage.getItem(key))
-          drafts.push({ key, ...data, _draftKey: key })
-        } catch {
-          drafts.push({ key, name: key, _draftKey: key })
-        }
-      }
-    }
-    return drafts
-  } catch {
-    return []
-  }
-}
-
-const deleteDraft = (draftKey) => {
-  localStorage.removeItem(draftKey)
-}
 
 /**
  * ProfilePage — User identity, stats, drafts, arsip, About & Contact.
@@ -56,8 +30,25 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
   const [activeSection, setActiveSection] = useState('stats') // 'stats' | 'drafts' | 'archive' | 'about' | 'contact'
 
   const { favorites } = useFavorites()
-  const [drafts, setDrafts] = useState(getDrafts)
+  const [drafts, setDrafts] = useState(() => draftStorage.getAllDrafts())
   const [archivedGuns, setArchivedGuns] = useState(() => archiveService.getArchivedGuns())
+
+  // Real-time synchronization saat arsip atau draft berubah
+  useEffect(() => {
+    const onArchiveUpdate = () => {
+      setArchivedGuns(archiveService.getArchivedGuns())
+    }
+    const onDraftsUpdate = () => {
+      setDrafts(draftStorage.getAllDrafts())
+    }
+
+    window.addEventListener('archive-updated', onArchiveUpdate)
+    window.addEventListener('drafts-updated', onDraftsUpdate)
+    return () => {
+      window.removeEventListener('archive-updated', onArchiveUpdate)
+      window.removeEventListener('drafts-updated', onDraftsUpdate)
+    }
+  }, [])
 
   const handleCopyId = () => {
     if (profile.userId) {
@@ -68,8 +59,8 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
   }
 
   const handleDeleteDraft = (draftKey) => {
-    deleteDraft(draftKey)
-    setDrafts(getDrafts())
+    draftStorage.deleteDraft(draftKey)
+    setDrafts(draftStorage.getAllDrafts())
   }
 
   const handleRestoreGun = (gunId) => {
@@ -189,14 +180,21 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
             <ul className="draft-list">
               {drafts.map((d) => (
                 <li key={d._draftKey} className="draft-item">
-                  <div className="draft-info">
+                  <div
+                    className="draft-info"
+                    style={{ cursor: 'pointer', flex: 1 }}
+                    onClick={() => onNavigate && onNavigate('Create', { draftId: d.id || 'create' })}
+                    title="Klik untuk membuka dan melanjutkan draft ini"
+                  >
                     <strong>{d.name || 'Draft tanpa judul'}</strong>
-                    <span className="draft-key">{d._draftKey}</span>
+                    <span className="draft-key">
+                      {d.savedAt ? formatDraftTime(d.savedAt) : 'Draft lokal'} · Klik untuk lanjut edit
+                    </span>
                   </div>
                   <button
                     type="button"
                     className="icon-btn icon-btn--danger"
-                    onClick={() => handleDeleteDraft(d._draftKey)}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteDraft(d._draftKey) }}
                     title="Hapus draft"
                   >
                     <Trash2 size={15} />

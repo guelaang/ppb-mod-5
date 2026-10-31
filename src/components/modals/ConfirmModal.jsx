@@ -1,7 +1,7 @@
 import { AlertTriangle } from 'lucide-react'
 
 /**
- * Accessible confirmation dialog built on the native <dialog> element.
+ * Accessible confirmation dialog built on the native modal styling.
  *
  * @param {Object}   props
  * @param {boolean}  props.open     — whether the modal is visible
@@ -9,9 +9,11 @@ import { AlertTriangle } from 'lucide-react'
  * @param {string}   props.message  — body text
  * @param {string}   [props.confirmLabel='Confirm']
  * @param {string}   [props.cancelLabel='Cancel']
+ * @param {string}   [props.secondaryLabel]
  * @param {boolean}  [props.danger]  — red style for destructive actions
  * @param {boolean}  [props.loading] — disables buttons while in progress
  * @param {Function} props.onConfirm
+ * @param {Function} [props.onSecondary]
  * @param {Function} props.onCancel
  */
 export default function ConfirmModal({
@@ -23,9 +25,11 @@ export default function ConfirmModal({
   confirmText,
   cancelLabel,
   cancelText,
+  secondaryLabel,
   danger = false,
   loading = false,
   onConfirm,
+  onSecondary,
   onCancel,
   onClose,
 }) {
@@ -55,7 +59,7 @@ export default function ConfirmModal({
         <p id="confirm-msg" className="modal-msg">
           {message}
         </p>
-        <div className="modal-actions">
+        <div className="modal-actions" style={{ flexWrap: 'wrap', gap: '8px' }}>
           <button
             type="button"
             className="modal-btn modal-btn--cancel"
@@ -64,9 +68,19 @@ export default function ConfirmModal({
           >
             {actualCancelText}
           </button>
+          {secondaryLabel && onSecondary && (
+            <button
+              type="button"
+              className="modal-btn modal-btn--danger"
+              onClick={onSecondary}
+              disabled={loading}
+            >
+              {secondaryLabel}
+            </button>
+          )}
           <button
             type="button"
-            className={`modal-btn ${danger ? 'modal-btn--danger' : 'modal-btn--confirm'}`}
+            className={`modal-btn ${danger && !secondaryLabel ? 'modal-btn--danger' : 'modal-btn--confirm'}`}
             onClick={onConfirm}
             disabled={loading}
           >

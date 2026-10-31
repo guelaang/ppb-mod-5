@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ArrowLeft,
   Upload,
@@ -25,7 +25,7 @@ import ConfirmModal from '../components/modals/ConfirmModal'
  * CreateGunPage — Create a new weapon / hardware item with image upload,
  * draft persistence (auto-save), specs, and assembly steps.
  */
-export default function CreateGunPage({ onBack, onSuccess }) {
+export default function CreateGunPage({ onBack, onSuccess, initialDraftId }) {
   // Step state: 'upload' (upload or choose image) or 'form' (enter details)
   const [currentStep, setCurrentStep] = useState('upload')
 
@@ -66,49 +66,97 @@ export default function CreateGunPage({ onBack, onSuccess }) {
   // Draft management
   const [showDraftModal, setShowDraftModal] = useState(() => hasDraft('create'))
   const [draftTimestamp, setDraftTimestamp] = useState(() => getDraftTimestamp('create'))
+  const isSubmittedRef = useRef(false)
+  const draftStateRef = useRef({ formData, specs, steps, uploadedImageUrl, imagePreview, currentStep })
+
+  useEffect(() => {
+    draftStateRef.current = { formData, specs, steps, uploadedImageUrl, imagePreview, currentStep }
+  }, [formData, specs, steps, uploadedImageUrl, imagePreview, currentStep])
 
   const handleSaveDraft = useCallback((notify = true) => {
     const draftData = {
+      name: formData.name || 'Draft Hardware Baru',
       formData,
       specs,
       steps,
       uploadedImageUrl,
+      imagePreview,
+      currentStep,
     }
     const saved = saveDraft(draftData, 'create')
     if (saved) {
       const ts = getDraftTimestamp('create')
       setDraftTimestamp(ts)
       if (notify) {
-        setSuccessMsg(`Draft saved (${formatDraftTime(ts)})`)
+        setSuccessMsg(`Draft tersimpan (${formatDraftTime(ts)})`)
         setTimeout(() => setSuccessMsg(''), 3000)
       }
     }
-  }, [formData, specs, steps, uploadedImageUrl])
+  }, [formData, specs, steps, uploadedImageUrl, imagePreview, currentStep])
 
-  // Auto-save draft every 30 seconds while in form step
+  // Auto-save on exit/unmount jika ada perubahan isi
   useEffect(() => {
-    if (currentStep !== 'form') return
+    return () => {
+      if (!isSubmittedRef.current) {
+        const s = draftStateRef.current
+        const hasContent = Boolean(s.formData?.name || s.imagePreview || s.uploadedImageUrl || s.formData?.description)
+        if (hasContent) {
+          saveDraft({
+            name: s.formData?.name || 'Draft Hardware Baru',
+            formData: s.formData,
+            specs: s.specs,
+            steps: s.steps,
+            uploadedImageUrl: s.uploadedImageUrl,
+            imagePreview: s.imagePreview,
+            currentStep: s.currentStep,
+          }, 'create')
+        }
+      }
+    }
+  }, [])
 
+  // Auto-save draft periodically
+  useEffect(() => {
     const interval = setInterval(() => {
-      handleSaveDraft(false)
-    }, 30000)
+      const hasContent = Boolean(formData.name || imagePreview || uploadedImageUrl || formData.description)
+      if (hasContent) {
+        handleSaveDraft(false)
+      }
+    }, 20000)
 
     return () => clearInterval(interval)
-  }, [handleSaveDraft, currentStep])
+  }, [handleSaveDraft, formData.name, formData.description, imagePreview, uploadedImageUrl])
+
+  useEffect(() => {
+    if (initialDraftId) {
+      const draft = loadDraft(initialDraftId)
+      if (draft) {
+        if (draft.formData) setFormData(draft.formData)
+        if (draft.specs) setSpecs(draft.specs)
+        if (draft.steps) setSteps(draft.steps)
+        if (draft.uploadedImageUrl) setUploadedImageUrl(draft.uploadedImageUrl)
+        if (draft.imagePreview) setImagePreview(draft.imagePreview)
+        if (draft.currentStep) setCurrentStep(draft.currentStep)
+        else if (draft.uploadedImageUrl || draft.imagePreview) setCurrentStep('form')
+        setShowDraftModal(false)
+        setSuccessMsg('Draft berhasil dimuat.')
+        setTimeout(() => setSuccessMsg(''), 4000)
+      }
+    }
+  }, [initialDraftId])
 
   const handleLoadDraft = () => {
-    const draft = loadDraft('create')
+    const draft = loadDraft(initialDraftId || 'create')
     if (draft) {
       if (draft.formData) setFormData(draft.formData)
       if (draft.specs) setSpecs(draft.specs)
       if (draft.steps) setSteps(draft.steps)
-      if (draft.uploadedImageUrl) {
-        setUploadedImageUrl(draft.uploadedImageUrl)
-        setImagePreview(draft.uploadedImageUrl)
-        setCurrentStep('form')
-      }
+      if (draft.uploadedImageUrl) setUploadedImageUrl(draft.uploadedImageUrl)
+      if (draft.imagePreview) setImagePreview(draft.imagePreview)
+      if (draft.currentStep) setCurrentStep(draft.currentStep)
+      else if (draft.uploadedImageUrl || draft.imagePreview) setCurrentStep('form')
       setShowDraftModal(false)
-      setSuccessMsg('Draft successfully loaded.')
+      setSuccessMsg('Draft berhasil dimuat.')
       setTimeout(() => setSuccessMsg(''), 4000)
     }
   }
@@ -117,6 +165,25 @@ export default function CreateGunPage({ onBack, onSuccess }) {
     deleteDraft('create')
     setShowDraftModal(false)
     setDraftTimestamp(null)
+  }
+
+  const handleBack = () => {
+    // Simpan draft sebelum keluar jika ada konten
+    if (!isSubmittedRef.current) {
+      const hasContent = Boolean(formData.name || imagePreview || uploadedImageUrl || formData.description)
+      if (hasContent) {
+        saveDraft({
+          name: formData.name || 'Draft Hardware Baru',
+          formData,
+          specs,
+          steps,
+          uploadedImageUrl,
+          imagePreview,
+          currentStep,
+        }, 'create')
+      }
+    }
+    if (onBack) onBack()
   }
 
   // Handle file selection
@@ -275,6 +342,7 @@ export default function CreateGunPage({ onBack, onSuccess }) {
       setCreating(true)
       const response = await gunService.createGun(payload)
       if (response.success || response.data) {
+        isSubmittedRef.current = true
         deleteDraft('create')
         if (onSuccess) {
           onSuccess(response.data)
@@ -295,20 +363,18 @@ export default function CreateGunPage({ onBack, onSuccess }) {
     <div className="form-page">
       {/* Header */}
       <div className="form-head">
-        <button type="button" className="detail-back" onClick={onBack}>
+        <button type="button" className="detail-back" onClick={handleBack}>
           <ArrowLeft size={18} /> Back to Catalog
         </button>
         <div className="form-head-actions">
-          {currentStep === 'form' && (
-            <button
-              type="button"
-              className="btn btn--outline btn--sm"
-              onClick={() => handleSaveDraft(true)}
-              title="Save draft"
-            >
-              <Save size={14} /> Save Draft
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn--outline btn--sm"
+            onClick={() => handleSaveDraft(true)}
+            title="Simpan draft"
+          >
+            <Save size={14} /> Simpan Draft
+          </button>
         </div>
       </div>
 
