@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import gunService from '../services/gunService'
+import { getCache, setCache, invalidateCacheByPrefix } from './useQueryCache'
 
 // ---------------------------------------------------------------------------
 // useGuns — fetch the paginated / filtered product list from the API.
+// Implements query caching (5 min TTL) to avoid redundant network requests.
 //
 // Returns { guns, loading, error, pagination, refetch }.
-// When the API is unreachable the `error` string will be set and `guns`
-// will remain an empty array so the UI can show a proper error state.
 // ---------------------------------------------------------------------------
 
 export function useGuns(params = {}) {
@@ -17,40 +17,64 @@ export function useGuns(params = {}) {
 
   // Serialise params so the effect re-runs when they change.
   const paramKey = JSON.stringify(params)
+  const cacheKey = `guns:${paramKey}`
 
-  const fetchGuns = useCallback(async () => {
+  const fetchGuns = useCallback(async (forceRefresh = false) => {
+    // --- Query Cache check ---
+    if (!forceRefresh) {
+      const cached = getCache(cacheKey)
+      if (cached) {
+        setGuns(cached.data || [])
+        setPagination(cached.pagination || null)
+        setLoading(false)
+        setError(null)
+        return
+      }
+    }
+
     try {
       setLoading(true)
       setError(null)
 
-      const response = await gunService.getGuns(params)
+      // Race against a 5-second timeout so the UI doesn't hang
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Server tidak merespons. Menampilkan data lokal.')), 5000)
+      )
+
+      const response = await Promise.race([gunService.getGuns(params), timeoutPromise])
 
       if (response.success) {
-        setGuns(response.data || [])
-        setPagination(response.pagination || null)
+        const result = { data: response.data || [], pagination: response.pagination || null }
+        setCache(cacheKey, result) // cache for 5 minutes
+        setGuns(result.data)
+        setPagination(result.pagination)
       } else {
         setError(response.message || 'Failed to fetch products.')
       }
     } catch (err) {
-      setError(err.message || 'An error occurred while fetching products.')
+      setError(err.message || 'Tidak dapat menghubungi server. Menampilkan data lokal.')
       setGuns([])
     } finally {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramKey])
+  }, [paramKey, cacheKey])
 
   useEffect(() => {
     fetchGuns()
   }, [fetchGuns])
 
-  return { guns, loading, error, pagination, refetch: fetchGuns }
+  // refetch() clears cache and re-fetches fresh data
+  const refetch = useCallback(() => {
+    invalidateCacheByPrefix('guns:')
+    fetchGuns(true)
+  }, [fetchGuns])
+
+  return { guns, loading, error, pagination, refetch }
 }
 
 // ---------------------------------------------------------------------------
 // useGunById — fetch a single product by its UUID.
-//
-// Returns { gun, loading, error, refetch }.
 // ---------------------------------------------------------------------------
 
 export function useGunById(id) {
@@ -58,11 +82,23 @@ export function useGunById(id) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const cacheKey = `gun:${id}`
+
   const fetchGun = useCallback(async () => {
     if (!id) {
       setLoading(false)
       return
     }
+
+    // Cache check
+    const cached = getCache(cacheKey)
+    if (cached) {
+      setGun(cached)
+      setLoading(false)
+      setError(null)
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
@@ -70,6 +106,7 @@ export function useGunById(id) {
       const response = await gunService.getGunById(id)
 
       if (response.success) {
+        setCache(cacheKey, response.data)
         setGun(response.data)
       } else {
         setError(response.message || 'Product not found.')
@@ -80,7 +117,7 @@ export function useGunById(id) {
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, cacheKey])
 
   useEffect(() => {
     fetchGun()

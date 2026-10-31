@@ -1,23 +1,25 @@
-import { Plus } from 'lucide-react'
+import { Plus, ShoppingCart } from 'lucide-react'
 import { useFavorites } from '../hooks/useFavorites'
 
 const NAV_ITEMS = [
-  { id: 'Catalog', label: 'Catalog' },
+  { id: 'Catalog',   label: 'Catalog' },
   { id: 'Favorites', label: 'Favorites', hasBadge: true },
-  { id: 'Profile', label: 'Profile' },
-  { id: 'About', label: 'About' },
-  { id: 'Contact', label: 'Contact' },
+  { id: 'Profile',   label: 'Profile' },
 ]
 
-function Header({ tab, onTab, onNavigateCreate }) {
+function Header({ tab, onTab, onNavigateCreate, onNavigateCart, cartCount = 0 }) {
   const { favorites } = useFavorites()
   const favCount = favorites ? favorites.length : 0
 
   return (
     <header className="header">
-      <div className="header-brand-wrap" onClick={() => onTab('Catalog')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div
+        className="header-brand-wrap"
+        onClick={() => onTab('Catalog')}
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+      >
         <div className="header-logo-badge">
-          <img src="/logo.png" alt="Bore & Barrel" />
+          <img src="/logo.png" alt="Bore &amp; Barrel" />
         </div>
         <span className="brand display">Bore &amp; Barrel</span>
       </div>
@@ -38,16 +40,34 @@ function Header({ tab, onTab, onNavigateCreate }) {
         ))}
       </nav>
 
-      {onNavigateCreate && (
-        <button
-          type="button"
-          className="btn btn--primary btn--sm header-cta"
-          onClick={onNavigateCreate}
-          title="Register new hardware"
-        >
-          <Plus size={15} /> Add Hardware
-        </button>
-      )}
+      <div className="header-right">
+        {/* Cart icon */}
+        {onNavigateCart && (
+          <button
+            type="button"
+            className="cart-icon-btn"
+            onClick={onNavigateCart}
+            title="Keranjang"
+            aria-label={`Keranjang (${cartCount} item)`}
+          >
+            <ShoppingCart size={20} />
+            {cartCount > 0 && (
+              <span className="cart-badge">{cartCount}</span>
+            )}
+          </button>
+        )}
+
+        {onNavigateCreate && (
+          <button
+            type="button"
+            className="btn btn--primary btn--sm header-cta"
+            onClick={onNavigateCreate}
+            title="Register new hardware"
+          >
+            <Plus size={15} /> Add Hardware
+          </button>
+        )}
+      </div>
     </header>
   )
 }
